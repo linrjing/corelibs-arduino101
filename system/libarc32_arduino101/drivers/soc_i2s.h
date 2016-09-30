@@ -143,7 +143,7 @@ DRIVER_API_RC soc_i2s_deconfig(uint8_t channel);
  *           - DRV_RC_OK on success
  *           - DRV_RC_FAIL otherwise
  */
-DRIVER_API_RC soc_i2s_write(void *buf, uint32_t len, uint32_t len_per_data);
+DRIVER_API_RC soc_i2s_write(const void *buf, uint32_t len, uint32_t len_per_data);
 
 /**
  *  Function to continuously transmit blocks of audio data
@@ -157,7 +157,7 @@ DRIVER_API_RC soc_i2s_write(void *buf, uint32_t len, uint32_t len_per_data);
  *           - DRV_RC_OK on success
  *           - DRV_RC_FAIL otherwise
  */
-DRIVER_API_RC soc_i2s_stream(void *buf, uint32_t len, uint32_t len_per_data, uint32_t num_bufs);
+DRIVER_API_RC soc_i2s_stream(const void *buf, uint32_t len, uint32_t len_per_data, uint32_t num_bufs);
 
 /**
  *  Function to stop a continuous audio data write
@@ -204,6 +204,8 @@ DRIVER_API_RC soc_i2s_listen(void *buf, uint32_t len,  uint32_t len_per_data, ui
 DRIVER_API_RC soc_i2s_stop_listen(void);
 
 DRIVER_API_RC soc_i2s_init();
+
+uint32_t soc_i2s_read_fifo(uint8_t channel);
 
 /** @} */
 

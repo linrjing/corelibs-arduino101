@@ -19,36 +19,55 @@ void setup()
   while(!Serial) ;      // wait for serial port to connect.
   Serial.println("CurieI2SDMA Tx Callback");
 
-  CurieI2SDMA.iniTX();
   /*
-   * CurieI2SDMA.beginTX(sample_rate, resolution, master,mode)
-   * mode 1 : PHILIPS_MODE
-   *      2 : RIGHT_JST_MODE
-   *      3 : LEFT_JST_MODE
-   *      4 : DSP_MODE
+   * CurieI2SDMA.begin(mode, sample_rate, resolution, master)
+   * mode 0 : PHILIPS_MODE
+   *      1 : RIGHT_JST_MODE
+   *      2 : LEFT_JST_MODE
+   *      3 : DSP_MODE
+   * master (optinal) in default TX is master and RX is slaver
+   *         0 : master
+   *         1 : slaver 
    */
-  CurieI2SDMA.beginTX(44100, 32,1, 1);
-  digitalWrite(13, blinkState);  
+  CurieI2SDMA.onTransmit(doneTX);
+  CurieI2SDMA.begin(PHILIPS_MODE,44100, 32,1);
+  digitalWrite(13, blinkState);
 }
 
 void loop() 
 {
-  for(uint32_t i = 0; i <BUFF_SIZE; ++i)
+  if(CurieI2SDMA.availableForWrite() != 0)
   {
-    dataBuff[i] = i + 1 + (loop_count<<16);
+    for(uint32_t i = 0; i <BUFF_SIZE; ++i)
+    {
+      dataBuff[i] = i + 1 + (loop_count<<16);
+    }
+    loop_count++;
+    int count = CurieI2SDMA.writeSamples(dataBuff,BUFF_SIZE);;
+    if(count != BUFF_SIZE)
+    {
+      Serial.println(" write samples error");
+      return;
+    }
+      
   }
-  loop_count++;
-  int status = CurieI2SDMA.transTX(dataBuff,sizeof(dataBuff),sizeof(uint32_t));
-  if(status)
-    return;
+  else
+  {
+     //when the TX set to be slave, this two lines wil introduce delay.
+     //Please remove it.
+    Serial.println("wait ... ");
+    delay(1000);
+  }
    
   blinkState = !blinkState;
   digitalWrite(13, blinkState);
+} 
 
-  //when the TX set to be slave, the two lines below will introduce delay.
-  //Please remove them.
-  Serial.println("done transmitting");
-  delay(1000);
+void doneTX(int count)
+{
+  Serial.print("transmit ");
+  Serial.print(count);
+  Serial.println("  data ");
   
 }
 

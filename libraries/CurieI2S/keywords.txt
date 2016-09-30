@@ -42,12 +42,18 @@ detachRxInterrupt	KEYWORD2
 attachTxInterrupt	KEYWORD2
 detachTxInterrupt	KEYWORD2
 attachTxEmptyInterrupt	KEYWORD2
-beginTX	KEYWORD2
-beginRX	KEYWORD2
-transTX	KEYWORD2
-transRX	KEYWORD2
-mergeData	KEYWORD2
-separateData	KEYWORD2
+
+beginPhilips	KEYWORD2
+beginRightJustified	KEYWORD2
+beginLeftJustified	KEYWORD2
+beginDsp	KEYWORD2
+end	KEYWORD2
+writeSamples	KEYWORD2
+readSamples	KEYWORD2
+availableForWrite	KEYWORD2
+availableForRead	KEYWORD2
+onReceive	KEYWORD2
+onTransmit	KEYWORD2
 #######################################
 # Instances (KEYWORD2)
 #######################################

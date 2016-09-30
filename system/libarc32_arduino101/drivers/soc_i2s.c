@@ -60,8 +60,8 @@ DRIVER_API_RC soc_i2s_deconfig(uint8_t channel);
 DRIVER_API_RC soc_i2s_read(void *buf, uint32_t len, uint32_t len_per_data);
 DRIVER_API_RC soc_i2s_listen(void *buf, uint32_t len, uint32_t len_per_data, uint8_t num_bufs);
 DRIVER_API_RC soc_i2s_stop_listen(void);
-DRIVER_API_RC soc_i2s_write(void *buf, uint32_t len, uint32_t len_per_data);
-DRIVER_API_RC soc_i2s_stream(void *buf, uint32_t len, uint32_t len_per_data, uint32_t num_bufs);
+DRIVER_API_RC soc_i2s_write(const void *buf, uint32_t len, uint32_t len_per_data);
+DRIVER_API_RC soc_i2s_stream(const void *buf, uint32_t len, uint32_t len_per_data, uint32_t num_bufs);
 DRIVER_API_RC soc_i2s_stop_stream(void);
 DRIVER_API_RC soc_i2s_init();
 
@@ -192,22 +192,25 @@ static void i2s_dma_cb_err(void *num)
 static void i2s_dma_cb_done(void *num)
 {
 	uint8_t channel = (uint32_t)num;
- 	uint32_t reg;
   
 	if(channel == I2S_CHANNEL_TX)
 	{
-		do
+		if (i2s_info->cfg[channel].cb_done) 
 		{
-			reg = MMIO_REG_VAL_FROM_BASE(SOC_I2S_BASE, i2s_reg_map[channel].fifo_stat);
-		} while(reg & 0x000000FF); 
+			i2s_info->cfg[channel].cb_done(i2s_info->cfg[channel].cb_done_arg);
+		}
+ 		i2s_disable(channel);
 	}
+ 	else
+ 	{
+		i2s_disable(channel);
+		if (i2s_info->cfg[channel].cb_done) 
+		{
+			i2s_info->cfg[channel].cb_done(i2s_info->cfg[channel].cb_done_arg);
+		}  
+ 	}	
 	
-	if (i2s_info->cfg[channel].cb_done) 
-	{
-		i2s_info->cfg[channel].cb_done(i2s_info->cfg[channel].cb_done_arg);
-	}
- 
-	i2s_disable(channel);
+
  
 	return;
 }
@@ -267,6 +270,7 @@ DRIVER_API_RC soc_i2s_config(uint8_t channel, struct soc_i2s_cfg *cfg)
 	i2s_info->cfg[channel] = *cfg;
 	i2s_info->cfgd[channel] = 1;
 
+  cfg->sample_rate = (sample_rate & 0x7FF) ;
 	return DRV_RC_OK;
 }
 
@@ -452,13 +456,13 @@ DRIVER_API_RC soc_i2s_stop_listen(void)
 	return DRV_RC_OK;
 }
 
-DRIVER_API_RC soc_i2s_write(void *buf, uint32_t len, uint32_t len_per_data)
+DRIVER_API_RC soc_i2s_write(const void *buf, uint32_t len, uint32_t len_per_data)
 {
 	// Calling stream with 0 buffers is the same as a onetime write of the whole buffer
 	return soc_i2s_stream(buf, len, len_per_data, 0);
 }
 
-DRIVER_API_RC soc_i2s_stream(void *buf, uint32_t len, uint32_t len_per_data, uint32_t num_bufs)
+DRIVER_API_RC soc_i2s_stream(const void *buf, uint32_t len, uint32_t len_per_data, uint32_t num_bufs)
 {
 	DRIVER_API_RC ret;
 	uint8_t channel = I2S_CHANNEL_TX;
@@ -668,3 +672,8 @@ DRIVER_API_RC soc_i2s_init()
 	return DRV_RC_OK;
 }
 
+uint32_t soc_i2s_read_fifo(uint8_t channel)
+{
+	uint32_t reg =  MMIO_REG_VAL_FROM_BASE(SOC_I2S_BASE, i2s_reg_map[channel].fifo_stat);
+	return (reg & 0x000000FF);
+}

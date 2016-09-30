@@ -23,25 +23,20 @@
 #include <CurieI2SDMA.h>
 
 #define BUFF_SIZE 128
-#define OFFSET 2
-uint32_t dataBuff[BUFF_SIZE+OFFSET]; // extra 2 buffers are for the padding zero
+uint32_t dataBuff[BUFF_SIZE];
 
 /** 
  * the received data: the higher 16 bits should be equal to loop_count and the lower 16 bits should be (0x01~0x80)
  * loop_count should increase by 1 in evry loop()
  * for example: if first time the received data is 0x00010001~0x00010080, then next time the data should be 0x00020001~0x00020080
 **/
-uint8_t start_flag = 0;
-uint8_t done_flag = 0; // when done_flag is 1, the received data are correct
 uint32_t loop_count = 0; // record the higher 16 bits of received data
-uint32_t shift_count = 0; // the position of first non-zero
 void setup() 
 {
   Serial.begin(115200); // initialize Serial communication
   while(!Serial) ;      // wait for serial port to connect.
   Serial.println("CurieI2SDMA Rx Callback");
 
-  CurieI2SDMA.iniRX();
   /*
    * CurieI2SDMA.beginTX(sample_rate, resolution, master,mode)
    * mode 1 : PHILIPS_MODE
@@ -49,60 +44,59 @@ void setup()
    *      3 : LEFT_JST_MODE
    *      4 : DSP_MODE
    */
-  CurieI2SDMA.beginRX(44100, 32,0,1);
+  CurieI2SDMA.onReceive(doneRX); 
+  CurieI2SDMA.begin(PHILIPS_MODE,44100, 32,0);
 
 }
 
+uint32_t print_flag;
 void loop() 
 {
-  int status = CurieI2SDMA.transRX(dataBuff,sizeof(dataBuff),sizeof(uint32_t));
-  if(status)
-    return;
-
-  // find out first non-zero
-  shift_count = 0;
-  for(uint32_t i = 0;i <= OFFSET;++i)
+  if(CurieI2SDMA.availableForRead() != 0 && !print_flag)
   {
-    if(dataBuff[i] == 0)
-      shift_count++;
-    else
-      break;
-  }
-  if(shift_count > OFFSET)
-    return;
-  
-  // record the higher 16 bits of received data  
-  if(start_flag)
-  {   
-    if((dataBuff[shift_count]>>16) != loop_count+1)
-      Serial.println("+++ loop_count jump +++");        
+    int count = CurieI2SDMA.readSamples(dataBuff,BUFF_SIZE);
+    if(count != BUFF_SIZE)
+    {
+      Serial.println(" write samples error");
+      return;
+    }
   }
   else
   {
-    start_flag = 1;
-  }
-  loop_count = (dataBuff[shift_count] >> 16);
-  
-  // check data serial: the higher 16 bits should be equal to loop_count and the lower 16 bits should be (0x01~0x80)  
-  done_flag = 1;
-  for(uint32_t i = 0 ;i < BUFF_SIZE;++i)
-  {
-    //Serial.println(dataBuff[i+shift_count],HEX);
-    if ((dataBuff[i+shift_count] & 0XFFFF0000) == (loop_count <<16)
-      && (dataBuff[i+shift_count] & 0XFFFF) == (i+1))
-            ;
-    else
-    {
-      done_flag = 0;
-      Serial.println(dataBuff[i+shift_count],HEX);
-      Serial.println("ERROR");
-      break;
+    if(print_flag)
+    {          
+      // record the higher 16 bits of received data  
+      if((dataBuff[0] >> 16) != (loop_count+1))
+        Serial.println("+++ loop_count jump +++");  
+      loop_count = (dataBuff[0] >> 16);
+      // check data serial: the higher 16 bits should be equal to loop_count and the lower 16 bits should be (0x0001~0x0080)  
+      for(uint32_t i = 0 ;i < BUFF_SIZE;++i)
+      {
+        //Serial.println(dataBuff[i],HEX);
+        if (((dataBuff[i] >> 16) != loop_count) || (dataBuff[i] & 0XFFFF) != (i+1)) 
+        {
+          Serial.println(dataBuff[i],HEX);
+          Serial.println("ERROR");
+          print_flag = 0;
+          return;
+        }
+      } 
+      print_flag = 0;
+      Serial.println("RX reveived right data");
     }
   } 
-    
-  if(done_flag)
-    Serial.println("RX done");
-  delay(100);  
+}
+
+
+void doneRX(int count)
+{
+  
+  Serial.print("received ");
+  Serial.print(count);
+  Serial.println("  data ");
+  
+  print_flag = 1;
+  
 }
 
 /*

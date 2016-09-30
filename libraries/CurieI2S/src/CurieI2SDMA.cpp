@@ -31,16 +31,134 @@ static void rxi2s_done(void* x);
 static void txi2s_err(void* x);
 static void rxi2s_err(void* x);
 
-volatile uint8_t txdone_flag = 0;
-volatile uint8_t txerror_flag = 0;
+volatile uint8_t txdone_flag = 0; // record whether the tx is finished successfully
+volatile uint8_t txerror_flag = 0; // record whether the tx is something wrong
 
-volatile uint8_t rxdone_flag = 0;
-volatile uint8_t rxerror_flag = 0;
+volatile uint8_t rxdone_flag = 0; // record whether the rx is finished successfully
+volatile uint8_t rxerror_flag = 0; // record whether the rx is something wrong
+
+volatile uint8_t txfirst_flag = 1; // once the tx side been called and worked OK, txfirst_flag will be set 0.
+volatile uint8_t rxfirst_flag = 1; // once the rx side been called and worked OK, txfirst_flag will be set 0.
+
 uint8_t frameDelay = 0;
 
+uint16_t write_buff_16[BUFF_SIZE_TEMP];
+uint32_t write_buff_32[BUFF_SIZE_TEMP];
+uint16_t read_buff_16[BUFF_SIZE_TEMP+2]; // there are two extra zero need to be received.
+uint32_t read_buff_32[BUFF_SIZE_TEMP+2];
+
+uint8_t *record_buff_adress_8=NULL;
+uint16_t *record_buff_adress_16=NULL;
+uint32_t *record_buff_adress_32=NULL;
+
+volatile uint32_t tx_buf_size = 0; // recode the number of data on tx side.
+volatile uint32_t rx_buf_size = 0; // recode the number of data on tx side.
+
+struct soc_i2s_cfg cfg[2];
+
+void (*i2s_txDoneCB)(int);
+void (*i2s_rxDoneCB)(int);
+
+int recode_data()
+{
+	int count = rx_buf_size;
+  
+	// if the type of data is uint8_t
+	if(record_buff_adress_8 != NULL && record_buff_adress_16 == NULL && record_buff_adress_32 == NULL)
+	{
+		int count_data = count*8/cfg[I2S_CHANNEL_RX].resolution+2;
+		int non_zero = 0;
+		while(0 == read_buff_32[non_zero] && non_zero < count_data)
+		non_zero++;
+		if(non_zero == count_data)
+			return I2S_DMA_FAIL;  
+       
+		if(12 == cfg[I2S_CHANNEL_RX].resolution )
+		{
+			for(int i = 0; i < count_data-non_zero && (3*i/2) < count; ++i)
+			{
+				if(i%2 == 0)
+					record_buff_adress_8[3*i/2] = (uint8_t)(read_buff_32[i+non_zero] & 0xFF);
+        			else
+        			{
+					record_buff_adress_8[3*(i-1)/2+1] 
+						= (uint8_t)(((read_buff_32[i+non_zero] & 0xFF)<<4)+((read_buff_32[i+non_zero-1] & 0xF00)>>8));
+					record_buff_adress_8[3*(i-1)/2+2] 
+						= (uint8_t)((read_buff_32[i+non_zero] & 0xFF0)>>4);
+				}      
+			}
+		}
+		else if(24 == cfg[I2S_CHANNEL_RX].resolution )
+		{
+			for(int i = 0; i < count_data-non_zero && (3*i) < count; ++i)
+			{
+				record_buff_adress_8[3*i] = (uint8_t)(read_buff_32[i+non_zero] & 0xFF);
+				record_buff_adress_8[3*i+1] = (uint8_t)((read_buff_32[i+non_zero] & 0xFF00)>>8);
+				record_buff_adress_8[3*i+2] = (uint8_t)((read_buff_32[i+non_zero] & 0xFF0000)>>16);       
+			}
+		}
+		else if(16 == cfg[I2S_CHANNEL_TX].resolution )
+		{
+			for(int i = 0; i < count_data-non_zero && (2*i) < count; ++i)
+			{
+				record_buff_adress_8[2*i] = (uint8_t)(read_buff_32[i+non_zero] & 0xFF);
+				record_buff_adress_8[2*i+1] = (uint8_t)((read_buff_32[i+non_zero] & 0xFF00)>>8);     
+			}
+		}
+		else if(32 == cfg[I2S_CHANNEL_TX].resolution )
+		{
+			for(int i = 0; i < count_data-non_zero && (4*i) < count; ++i)
+			{
+				record_buff_adress_8[4*i] = (uint8_t)(read_buff_32[i+non_zero] & 0xFF);
+				record_buff_adress_8[4*i+1] = (uint8_t)((read_buff_32[i+non_zero] & 0xFF00)>>8);
+				record_buff_adress_8[4*i+2] = (uint8_t)((read_buff_32[i+non_zero] & 0xFF0000)>>16);
+				record_buff_adress_8[4*i+3] = (uint8_t)((read_buff_32[i+non_zero] & 0xFF000000)>>24);        
+			}
+		}
+		else
+		{
+			return I2S_DMA_FAIL;
+		}   
+	}
+	// if the type of data is uint16_t
+	else if(record_buff_adress_8 == NULL && record_buff_adress_16 != NULL && record_buff_adress_32 == NULL)
+	{
+		int count_data = count + 2;
+		int non_zero = 0;
+		while(0 == read_buff_16[non_zero] && non_zero < count_data)
+			non_zero++;
+		if(non_zero == count_data)
+			return I2S_DMA_FAIL;
+      
+		for(int i = 0;i <count_data - non_zero && i < count;++i)
+			record_buff_adress_16[i] = read_buff_16[i+non_zero];         
+	}
+	// if the type of data is uint32_t
+	else if(record_buff_adress_8 == NULL && record_buff_adress_16 == NULL && record_buff_adress_32 != NULL)
+	{
+		int count_data = count + 2;
+		int non_zero = 0;
+		while(0 == read_buff_32[non_zero] && non_zero < count_data)
+		non_zero++;
+		if(non_zero == count_data)
+			return I2S_DMA_FAIL;
+
+		for(int i = 0;i <count_data - non_zero && i < count;++i)
+			record_buff_adress_32[i] = read_buff_32[i+non_zero];         
+	}
+	else
+		return I2S_DMA_FAIL;
+    
+	return I2S_DMA_OK;     
+} 
+      
 static void txi2s_done(void* x)
 {
-	CurieI2SDMA.lastFrameDelay();
+	delay(frameDelay);
+	if(i2s_txDoneCB != NULL)
+	{
+		i2s_txDoneCB(tx_buf_size);		
+	} 
 	txdone_flag = 1;
 
 	return;
@@ -48,6 +166,11 @@ static void txi2s_done(void* x)
 
 static void rxi2s_done(void* x)
 {
+	recode_data();
+	if(i2s_rxDoneCB != NULL)
+	{
+		i2s_rxDoneCB(rx_buf_size);		
+	} 
 	rxdone_flag = 1;
 
 	return;
@@ -67,31 +190,17 @@ static void rxi2s_err(void* x)
 	return;
 }
 
-struct soc_i2s_cfg txcfg ;
-
-struct soc_i2s_cfg rxcfg ;
-
 Curie_I2SDMA CurieI2SDMA;
 
 Curie_I2SDMA::Curie_I2SDMA()
 {
+	i2s_txDoneCB = NULL;
+	i2s_rxDoneCB = NULL;
 }
 
-void Curie_I2SDMA::lastFrameDelay()
-{
-    delay(frameDelay);
-}
-
-int Curie_I2SDMA::iniTX()
+int Curie_I2SDMA::ini()
 {
 	muxTX(1);
-	soc_i2s_init();
-	soc_dma_init();
-	return I2S_DMA_OK; 
-}
-
-int Curie_I2SDMA::iniRX()
-{
 	muxRX(1);
 	soc_i2s_init();
 	soc_dma_init();
@@ -132,191 +241,303 @@ void Curie_I2SDMA::muxRX(bool enable)
 	g_APinDescription[I2S_RSCK].ulPinMode  = mux_mode;
 }
 
-int Curie_I2SDMA::beginTX(uint16_t sample_rate,uint8_t resolution,uint8_t master,uint8_t mode)
+int Curie_I2SDMA::begin(int mode,int sample_rate,long resolution,uint8_t master)
 {
+  if(I2S_DMA_OK != ini())
+    return I2S_DMA_FAIL;
+
 	switch(mode)
 	{
-		case 1:
+		case PHILIPS_MODE:
 			mode = I2S_MODE_PHILLIPS ;
 			break;
-		case 2:
+		case RIGHT_JST_MODE:
 			mode = I2S_MODE_RJ;
 			break;
-		case 3:
+		case LEFT_JST_MODE:
 			mode = I2S_MODE_LJ;
 			break;
-		case 4:
+		case DSP_MODE:
 			mode = I2S_MODE_DSP;
 			break;
 		default:
 			break;
 	}
     
-	txcfg.sample_rate = sample_rate;
-	txcfg.resolution = resolution;
-	txcfg.mode = mode;
-	txcfg.master = master;
-	txcfg.cb_done = txi2s_done;
-	txcfg.cb_err = txi2s_err;
+	cfg[I2S_CHANNEL_TX].sample_rate = sample_rate;
+	cfg[I2S_CHANNEL_TX].resolution = resolution;
+	cfg[I2S_CHANNEL_TX].mode = mode;
+	cfg[I2S_CHANNEL_TX].master = master;
+ 
+ 	cfg[I2S_CHANNEL_TX].cb_done = txi2s_done;
+	cfg[I2S_CHANNEL_TX].cb_err = txi2s_err; 	
 	txdone_flag = 0;
 	txerror_flag = 0;
-	frameDelay =  5;
-	soc_i2s_config(I2S_CHANNEL_TX, &txcfg);
-	return I2S_DMA_OK;
-}
+ 
+	cfg[I2S_CHANNEL_RX].sample_rate = sample_rate;
+	cfg[I2S_CHANNEL_RX].resolution = resolution;
+	cfg[I2S_CHANNEL_RX].mode = mode;
+	cfg[I2S_CHANNEL_RX].master = master;
 
-int Curie_I2SDMA::beginRX(uint16_t sample_rate,uint8_t resolution,uint8_t master,uint8_t mode)
-{
-	switch(mode)
-	{
-		case 1:
-			mode = I2S_MODE_PHILLIPS ;
-			break;
-		case 2:
-			mode = I2S_MODE_RJ;
-			break;
-		case 3:
-			mode = I2S_MODE_LJ;
-			break;
-		case 4:
-			mode = I2S_MODE_DSP;
-			break;
-		default:
-			break;
-	}
-    
-	rxcfg.sample_rate = sample_rate;
-	rxcfg.resolution = resolution;
-	rxcfg.mode = mode;
-	rxcfg.master = master;
-
-	rxcfg.cb_done = rxi2s_done;
-	rxcfg.cb_err = rxi2s_err; 
-	
+ 	cfg[I2S_CHANNEL_RX].cb_done = rxi2s_done;
+	cfg[I2S_CHANNEL_RX].cb_err = rxi2s_err; 	
 	rxdone_flag = 0;
 	rxerror_flag = 0;
-
-	soc_i2s_config(I2S_CHANNEL_RX, &rxcfg);
-
-	return I2S_DMA_OK;
-}
-
-int Curie_I2SDMA::transTX(void* buf_TX,uint32_t len,uint32_t len_per_data)
-{
-	int status = soc_i2s_stream(buf_TX, len,len_per_data,0); 
-	if(status)
-		return I2S_DMA_FAIL;
-	while (1) 
-	{   
-		// check the DMA and I2S status
-		if(txdone_flag && !txerror_flag) 
-		{  
-			txdone_flag = 0;
-			txerror_flag = 0;
-			return I2S_DMA_OK;
-		}
-		if(txerror_flag)
-		{
-			return I2S_DMA_FAIL;
-		}        
-	}
-}
-
-int Curie_I2SDMA::transRX(void* buf_RX,uint32_t len,uint32_t len_per_data)
-{
-	int status = soc_i2s_listen(buf_RX, len ,len_per_data,0);
-	if(status)
-		return I2S_DMA_FAIL;
-
-	while (1) 
+    
+	if(0 == master || 1 == master)
 	{
-		// check the DMA and I2S status
-		if(rxdone_flag && !rxerror_flag)  
-		{
-			rxdone_flag = 0;
-			rxerror_flag = 0;
-			return I2S_DMA_OK;
-		}
-		if(rxerror_flag)
-		{
-			return I2S_DMA_FAIL;
-		}
+		soc_i2s_config(I2S_CHANNEL_TX, &cfg[I2S_CHANNEL_TX]);
+		soc_i2s_config(I2S_CHANNEL_RX, &cfg[I2S_CHANNEL_RX]);
 	}
+	else
+	{
+		cfg[I2S_CHANNEL_TX].master = 1;
+		soc_i2s_config(I2S_CHANNEL_TX, &cfg[I2S_CHANNEL_TX]);
+		cfg[I2S_CHANNEL_RX].master = 0;
+		soc_i2s_config(I2S_CHANNEL_RX, &cfg[I2S_CHANNEL_RX]);
+	}  
+	frameDelay = cfg[I2S_CHANNEL_TX].sample_rate*32*4/1000;
+   
 	return I2S_DMA_OK;
 }
 
-void Curie_I2SDMA::stopTX()
+int Curie_I2SDMA::beginPhilips(long sampleRate, int bitsPerSample)
+{
+ 	return begin(PHILIPS_MODE,sampleRate,bitsPerSample);
+}
+
+int Curie_I2SDMA::beginRightJustified(long sampleRate, int bitsPerSample)
+{
+	return begin(RIGHT_JST_MODE,sampleRate,bitsPerSample);
+}
+
+int Curie_I2SDMA::beginLeftJustified(long sampleRate, int bitsPerSample)
+{
+	return begin(LEFT_JST_MODE,sampleRate,bitsPerSample);
+}
+
+int Curie_I2SDMA::beginDsp(long sampleRate, int bitsPerSample)
+{
+	return begin(DSP_MODE,sampleRate,bitsPerSample);
+}
+
+int Curie_I2SDMA::writeSamples(const uint8_t data[], int count)
+{
+	return writeSamples(data, (size_t)count);
+}
+
+int Curie_I2SDMA::writeSamples(const uint16_t data[], int count)
+{
+	txdone_flag = 0;
+	txerror_flag = 0;
+	tx_buf_size = count;
+	int status = soc_i2s_stream(data, count*sizeof(uint16_t),sizeof(uint16_t),0); 
+	if(status)
+		return 0;
+	else
+ 		return count;
+}
+
+int Curie_I2SDMA::writeSamples(const uint32_t data[], int count)
+{
+	txdone_flag = 0;
+	txerror_flag = 0;
+	tx_buf_size = count;
+	int status = soc_i2s_stream(data, count*sizeof(uint32_t),sizeof(uint32_t),0); 
+ 	if(status)
+		return 0;
+	else
+		return count;
+
+}
+
+size_t Curie_I2SDMA::writeSamples(uint8_t data)
+{
+	txdone_flag = 0;	
+	txerror_flag = 0;
+	uint32_t temp[1] = {data};
+	tx_buf_size = 1;
+	size_t status = writeSamples(temp, 1);
+ 	if(status)
+		return 0;
+	else
+		return 1;
+}
+
+size_t Curie_I2SDMA::writeSamples(const uint8_t *samples, size_t size)
+{
+	txdone_flag = 0;
+	txerror_flag = 0;
+	int count_data = size*8/cfg[I2S_CHANNEL_TX].resolution;
+	size_t status = 0;
+	if(12 == cfg[I2S_CHANNEL_TX].resolution )
+	{
+		for(int i = 0; i < count_data; ++i)
+		{
+			if(i%2 == 0)
+				write_buff_16[i] = (*(samples+3*i/2)<<0) + ((*(samples+3*i/2+1) & 0xF)<<8);
+			else
+				write_buff_16[i] = ((*(samples+3*(i-1)/2+1) &0xF0)>>4) + (*(samples+3*(i-1)/2+2) << 4);
+		}
+		status = writeSamples(write_buff_16, count_data);
+	}
+	else if(24 == cfg[I2S_CHANNEL_TX].resolution )
+	{
+		for(int i = 0; i < count_data; ++i)
+		{
+			write_buff_32[i] = (*(samples+3*i)<<0)+(*(samples+3*i+1)<<8)+(*(samples+3*i+2)<<16);
+		}
+		status = writeSamples(write_buff_32, count_data);
+	}
+	else if(16 == cfg[I2S_CHANNEL_TX].resolution )
+	{
+		for(int i = 0; i < count_data; ++i)
+		{
+			write_buff_16[i] = (*(samples+2*i)<<0)+(*(samples+2*i+1)<<8);
+		}
+		status = writeSamples(write_buff_16, count_data);
+	}
+	else if(32 == cfg[I2S_CHANNEL_TX].resolution )
+	{
+		for(int i = 0; i < count_data; ++i)
+		{
+			write_buff_32[i] = (*(samples+4*i)<<0)+(*(samples+4*i+1)<<8)+(*(samples+4*i+2)<<16)+(*(samples+4*i+3)<<24);
+		}
+		status = writeSamples(write_buff_32, count_data);
+	}
+	else
+		return 0;
+	tx_buf_size = size;
+      
+	if(status)
+		return 0;
+	else
+		return size;      
+}
+
+int Curie_I2SDMA::readSamples(uint8_t data[], int count)
+{
+	rxdone_flag = 0;
+	rxerror_flag = 0;
+	record_buff_adress_8 = data;
+
+	int count_data = count*8/cfg[I2S_CHANNEL_RX].resolution+2;
+  
+	int status = soc_i2s_listen(read_buff_32, (count_data)*sizeof(uint32_t),sizeof(uint32_t),0); 
+	if(status)
+		return 0;
+
+	rx_buf_size = count; 
+    
+ 	if(status)
+		return 0;
+	else
+  		return count; 
+}
+
+int Curie_I2SDMA::readSamples(uint16_t data[], int count)
+{
+	rxdone_flag = 0;
+	rxerror_flag = 0;
+	if(record_buff_adress_8 == NULL)
+		record_buff_adress_16 = data;
+	rx_buf_size = count;  
+	int count_data = count + 2;
+	int status = soc_i2s_listen(read_buff_16, (count_data)*sizeof(uint16_t),sizeof(uint16_t),0); 
+   
+ 	if(status)
+		return 0;
+	else
+		return count; 
+}
+
+int Curie_I2SDMA::readSamples(uint32_t data[], int count)
+{
+	rxdone_flag = 0;
+	rxerror_flag = 0;
+	if(record_buff_adress_8 == NULL)
+		record_buff_adress_32 = data;
+	rx_buf_size = count;  
+	int count_data = count + 2;
+	int status = soc_i2s_listen(read_buff_32, (count_data)*sizeof(uint32_t),sizeof(uint32_t),0);
+   
+ 	if(status)
+		return 0;
+	else
+  		return count; 
+
+}
+
+void Curie_I2SDMA::end()
 {
 	soc_i2s_stop_stream();
-	muxTX(0);
-}
-
-void Curie_I2SDMA::stopRX()
-{
 	soc_i2s_stop_listen();
-	muxRX(0);
+	muxTX(0);
+	muxRX(0); 
 }
-
-int Curie_I2SDMA::mergeData(void* buf_left,void* buf_right,void* buf_TX,uint32_t length_TX,uint32_t len_per_data)
+size_t Curie_I2SDMA::availableForWrite()
 {
-	if(len_per_data == 1)
+	if(txfirst_flag)
 	{
-		for(uint32_t i = 0; i < length_TX/2;++i)
-		{
-			*((uint8_t *)buf_TX+2*i) = *((uint8_t *)buf_left+i);
-			*((uint8_t *)buf_TX+2*i+1) = *((uint8_t *)buf_right+i);
-		}
+		txfirst_flag = 0;
+		return BUFF_SIZE_TEMP;
 	}
-	else if(len_per_data == 2)
-	{
-		for(uint32_t i = 0; i < length_TX/2;++i)
-		{
-			*((uint16_t *)buf_TX+2*i) = *((uint16_t *)buf_left+i);
-			*((uint16_t *)buf_TX+2*i+1) = *((uint16_t *)buf_right+i);
-		}
-	}
-	else if(len_per_data == 4)
-	{
-		for(uint32_t i = 0; i < length_TX/2;++i)
-		{
-			*((uint32_t *)buf_TX+2*i) = *((uint32_t *)buf_left+i);
-			*((uint32_t *)buf_TX+2*i+1) = *((uint32_t *)buf_right+i);
-		}
-	}
+	uint32_t reg = soc_i2s_read_fifo(I2S_CHANNEL_TX);
+	if(txdone_flag == 1 &&  reg == 0)
+		return BUFF_SIZE_TEMP;
 	else
-		return I2S_DMA_FAIL;
-
-	return I2S_DMA_OK;
+		return 0;    
 }
 
-int Curie_I2SDMA::separateData(void* buf_left,void* buf_right,void* buf_RX,uint32_t length_RX,uint32_t len_per_data)
-{	 
-	if(len_per_data == 1)
+size_t Curie_I2SDMA::availableForRead()
+{
+	if(rxfirst_flag)
 	{
-		for(uint32_t i = 0; i < length_RX/2;++i)
-		{
-			*((uint8_t *)buf_left+i) = *((uint8_t *)buf_RX+2*i);
-			*((uint8_t *)buf_right+i) = *((uint8_t *)buf_RX+2*i+1);
-		}
+		rxfirst_flag = 0;
+		return BUFF_SIZE_TEMP;
 	}
-	else if(len_per_data == 2)
-	{
-		for(uint32_t i = 0; i < length_RX/2;++i)
-		{
-			*((uint16_t *)buf_left+i) = *((uint16_t *)buf_RX+2*i);
-			*((uint16_t *)buf_right+i) = *((uint16_t *)buf_RX+2*i+1);
-		}
-	}
-	else if(len_per_data == 4)
-	{
-		for(uint32_t i = 0; i < length_RX/2;++i)
-		{
-			*((uint32_t *)buf_left+i) = *((uint32_t *)buf_RX+2*i);
-			*((uint32_t *)buf_right+i) = *((uint32_t *)buf_RX+2*i+1);
-		}
-	}
+	uint32_t reg = soc_i2s_read_fifo(I2S_CHANNEL_RX);
+
+	if(rxdone_flag == 1 &&  reg == 0)
+		return BUFF_SIZE_TEMP;
 	else
-		return I2S_DMA_FAIL;
-  
-	return I2S_DMA_OK;
+		return 0;    
+}
+
+int Curie_I2SDMA::available()
+{
+	return 0;
+}
+
+int Curie_I2SDMA::read()
+{
+	return 0;
+}
+
+int Curie_I2SDMA::peek()
+{
+	return 0;
+}
+
+void Curie_I2SDMA::flush()
+{
+}
+
+void Curie_I2SDMA::onTransmit(void(* userCallBack)(int))
+{
+	i2s_txDoneCB = userCallBack;
+}
+
+void Curie_I2SDMA::onReceive(void(* userCallBack)(int))
+{
+	i2s_rxDoneCB = userCallBack;
+}
+
+
+
+void Curie_I2SDMA::setTxPins(int clock, int wordSelect, int data)
+{
+}
+void Curie_I2SDMA::setRxPins(int clock, int wordSelect, int data)
+{
 }
