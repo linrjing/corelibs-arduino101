@@ -25,8 +25,8 @@
 
 Curie_I2S CurieI2S;
 
-//static uint32_t _i2s_dma_Rx_Buffer[DMA_BUFFER_SIZE];
-//static uint32_t _i2s_dma_Tx_Buffer[DMA_BUFFER_SIZE];
+//static int32_t _i2s_dma_Rx_Buffer[DMA_BUFFER_SIZE];
+//static int32_t _i2s_dma_Tx_Buffer[DMA_BUFFER_SIZE];
 
 static struct i2s_ring_buffer _i2s_Rx_Buffer;
 static struct i2s_ring_buffer _i2s_Tx_Buffer;
@@ -55,7 +55,7 @@ static void i2sInterruptHandler(void)
         for(int i = 0; i < fifoDataLength; i++)
         {
             index = (uint32_t)(_i2s_Rx_BufferPtr->head +1) % I2S_BUFFER_SIZE;
-            uint32_t data = *I2S_DATA_REG;
+            int32_t data = *I2S_DATA_REG;
             if(index != _i2s_Rx_BufferPtr->tail)
             {
                 _i2s_Rx_BufferPtr->data[_i2s_Rx_BufferPtr->head] = data;
@@ -226,7 +226,7 @@ static void i2sInterruptHandler(void)
                 CurieI2S.lastFrameDelay();
                 //stop transmission
                 *I2S_CTRL = *I2S_CTRL & 0xFDFFFFFE;
-                
+
                 //clear flags
                 i2s_stat = i2s_stat & 0xFFFFF0FF;
                 *I2S_STAT = i2s_stat | 0x00000001;
@@ -541,7 +541,7 @@ void Curie_I2S::enableInterrupts()
     interrupt_enable(IRQ_I2S_INTR); 
 }
 
-int Curie_I2S::pushData(uint32_t data)
+int Curie_I2S::pushData(int32_t data)
 {
     //disable TFIFO_AEMPTY interrupts
     *I2S_CID_CTRL = *I2S_CID_CTRL & 0xFDFFFFFF;
@@ -563,22 +563,22 @@ int Curie_I2S::pushData(uint32_t data)
     }
 }
 
-void Curie_I2S::fastPushData(uint32_t data)
+void Curie_I2S::fastPushData(int32_t data)
 {
     *I2S_DATA_REG = data;
 }
 
-uint32_t Curie_I2S::pullData()
+int32_t Curie_I2S::pullData()
 {
-    uint32_t data = *I2S_DATA_REG;
+    int32_t data = *I2S_DATA_REG;
     return data;
 }
 
-uint32_t Curie_I2S::requestdword()
+int32_t Curie_I2S::requestdword()
 {
     if(_i2s_Rx_BufferPtr->head != _i2s_Rx_BufferPtr->tail)
     {
-        uint32_t data = _i2s_Rx_BufferPtr->data[_i2s_Rx_BufferPtr->tail];
+        int32_t data = _i2s_Rx_BufferPtr->data[_i2s_Rx_BufferPtr->tail];
         _i2s_Rx_BufferPtr->tail = (_i2s_Rx_BufferPtr->tail + 1)%I2S_BUFFER_SIZE;
         return data;
     }
@@ -588,7 +588,7 @@ uint32_t Curie_I2S::requestdword()
         if(*I2S_RFIFO_STAT & 0x0000000F)
         {
             int index = (uint32_t)(_i2s_Rx_BufferPtr->head +1) % I2S_BUFFER_SIZE;
-            uint32_t data = *I2S_DATA_REG;
+            int32_t data = *I2S_DATA_REG;
             if(index != _i2s_Rx_BufferPtr->tail)
             {
                 _i2s_Rx_BufferPtr->data[_i2s_Rx_BufferPtr->head] = data;
