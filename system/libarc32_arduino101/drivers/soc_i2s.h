@@ -58,7 +58,7 @@ extern "C" {
 
 // I2S configuration object
 struct soc_i2s_cfg {
-        uint16_t clk_divider;    // 32 MHz /(sample x 2 x rate)
+	uint16_t clk_divider;    // 32 MHz /(sample x 2 x rate)
 	uint8_t resolution;
 	uint8_t mode;
 	uint8_t master;
@@ -87,7 +87,7 @@ struct soc_i2s_info {
 
 	struct clk_gate_info_s *clk_gate_info;
 
-        uint32_t hw_initialized;
+	uint32_t hw_initialized;
 };
 
 extern struct driver soc_i2s_driver;
@@ -124,27 +124,31 @@ DRIVER_API_RC soc_i2s_deconfig(uint8_t channel);
  *  Function to transmit a block of audio data
  *
  *  @param   buf             : pointer to data to write
- *  @param   len             : length of data to write (in bytes)
+ *
+ *  @param   bufSize         : length of buffer to write (in bytes)
+ *
+ *  @param   dataSize        :data size - 8, 16, 32 bits (in bytes)
  *
  *  @return
  *           - DRV_RC_OK on success
  *           - DRV_RC_FAIL otherwise
  */
-DRIVER_API_RC soc_i2s_write(void *buf, uint32_t len, uint32_t len_per_data);
+DRIVER_API_RC soc_i2s_write(void *buf, int bufSize, int dataSize);
 
 /**
- *  Function to continuously transmit blocks of audio data
+ *  Function to continuously transmit blocks of audio data in round a robin fashion
  *
- *  @param   buf             : pointer to buffer to read data from
- *  @param   len             : length of buffer (in bytes)
- *  @param   num_bufs        : number of parts into which to split the buffer; calling the callback
- *                             after each is sent
+ *  @param   bufPtrArray     : an array of buffer pointers (addresses)
+ *  @param   numBuf          : number of buffers for transmission (in bufPtrArray)
+ *  @param   bufSize         : length of buffer (in bytes)
+ *  @param   dataSize        : data size - 8, 16, 32 bits (in bytes)
  *
  *  @return
  *           - DRV_RC_OK on success
  *           - DRV_RC_FAIL otherwise
  */
-DRIVER_API_RC soc_i2s_stream_conifg(void *buf, uint32_t len, uint32_t len_per_data, uint32_t num_bufs);
+DRIVER_API_RC soc_i2s_transmit_loop(void *bufPtrArray[], int numBuf, int bufSize,
+					int dataSize);
 
 /**
  *  Function to stop a continuous audio data write
@@ -153,33 +157,38 @@ DRIVER_API_RC soc_i2s_stream_conifg(void *buf, uint32_t len, uint32_t len_per_da
  *           - DRV_RC_OK on success
  *           - DRV_RC_FAIL otherwise
  */
-DRIVER_API_RC soc_i2s_stop_stream(void);
+DRIVER_API_RC soc_i2s_stop_transmit(void);
 
 /**
  *  Function to receive a block of audio data
  *
- *  @param   buf             : pointer to buffer to fill with data
- *  @param   len             : length of buffer (in bytes)
+ *  @param   buf             : pointer to data to write
+ *
+ *  @param   bufSize         : length of buffer to read (in bytes)
+ *
+ *  @param   dataSize        : data size - 8, 16, 32 bits (in bytes)
+ *
  *
  *  @return
  *           - DRV_RC_OK on success
  *           - DRV_RC_FAIL otherwise
  */
-DRIVER_API_RC soc_i2s_read(void *buf, uint32_t len, uint32_t len_per_data);
+DRIVER_API_RC soc_i2s_read(void *buf, int bufSize, int dataSize);
 
 /**
- *  Function to continuously receive blocks of audio data
+ *  Function to continuously receive blocks of audio data in round a robin fashion
  *
- *  @param   buf             : pointer to buffer to fill with data
- *  @param   len             : length of buffer (in bytes)
- *  @param   num_bufs        : number of parts into which to split the buffer; calling the callback
- *                             after each is filled
+ *  @param   bufPtrArray     : an array of buffer pointers (addresses)
+ *  @param   numBuf          : number of buffers for transmission (in bufPtrArray)
+ *  @param   bufSize         : length of buffer (in bytes)
+ *  @param   dataSize        : data size - 8, 16, 32 bits (in bytes)
  *
  *  @return
  *           - DRV_RC_OK on success
  *           - DRV_RC_FAIL otherwise
  */
-DRIVER_API_RC soc_i2s_listen(void *buf, uint32_t len,  uint32_t len_per_data, uint8_t num_bufs);
+DRIVER_API_RC soc_i2s_receive_loop(void *bufPtrArray[], int numBuf, int bufSize,
+					int dataSize);
 
 /**
  *  Function to stop a continuous audio data read
@@ -188,12 +197,10 @@ DRIVER_API_RC soc_i2s_listen(void *buf, uint32_t len,  uint32_t len_per_data, ui
  *           - DRV_RC_OK on success
  *           - DRV_RC_FAIL otherwise
  */
-DRIVER_API_RC soc_i2s_stop_listen(void);
+DRIVER_API_RC soc_i2s_stop_receive(void);
 
 DRIVER_API_RC soc_i2s_init(uint8_t channel);
 
-//DRIVER_API_RC dma_transfer(uint8_t channel);
-DRIVER_API_RC soc_i2s_transfer(void *buf,uint8_t channel);
 /** @} */
 
 #ifdef __cplusplus

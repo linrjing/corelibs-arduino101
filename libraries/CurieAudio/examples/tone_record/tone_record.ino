@@ -22,7 +22,7 @@
 
 
 #ifdef ARDUINO_ARCH_ARC32
-#include <I2SOutput.h>
+#include <I2SInput.h>
 #else
 #include "Adafruit_ASFcore.h"
 #include "Adafruit_ZeroI2S.h"
@@ -62,7 +62,8 @@ float scale[] = { C4_HZ, D4_HZ, E4_HZ, F4_HZ, G4_HZ, A4_HZ, B4_HZ, A4_HZ, G4_HZ,
 int32_t sine[WAV_SIZE]     = {0};
 int32_t sawtooth[WAV_SIZE] = {0};
 int32_t triangle[WAV_SIZE] = {0};
-int32_t square[WAV_SIZE]   = {0};
+//int32_t square[WAV_SIZE]   = {0};
+int32_t recordWav[2 * WAV_SIZE]   = {0};
 
 #ifndef ARDUINO_ARCH_ARC32
 /***********************
@@ -104,7 +105,7 @@ void generateTriangle(int32_t amplitude, int32_t* buffer, uint16_t length) {
     buffer[i] = (amplitude/2)-delta*(i-length/2);
   }
 }
-
+#if 0
 void generateSquare(int32_t amplitude, int32_t* buffer, uint16_t length) {
   // Generate a square wave signal with the provided amplitude and store it in
   // the provided buffer of size length.
@@ -115,14 +116,9 @@ void generateSquare(int32_t amplitude, int32_t* buffer, uint16_t length) {
     buffer[i] = (amplitude/2);
   }
 }
-
-
-void playWave(int32_t* buffer, uint16_t length, float frequency, float seconds) {
-#ifdef ARDUINO_ARCH_ARC32
-  // push some silence to get things going
-  I2SOutput.write(0, 0, 1);
 #endif
-  
+
+void recordWave(int32_t* buffer, uint16_t length, float frequency, float seconds) {
   // Play back the provided waveform buffer for the specified
   // amount of seconds.
   // First calculate how many samples need to play back to run
@@ -132,30 +128,32 @@ void playWave(int32_t* buffer, uint16_t length, float frequency, float seconds) 
   // Then calculate the 'speed' at which we move through the wave
   // buffer based on the frequency of the tone being played.
   float delta = (frequency*length)/float(SAMPLERATE_HZ);
-
   // Now loop through all the samples and play them, calculating the
   // position within the wave buffer for each moment in time.
+       for(int i = 0; i < 256;++i)
+    {
+      recordWav[2*i]=recordWav[2*i+1]=0xFFFFFFFF;
+     
+    }
+  int samples_recorded = 0;
+  int read_size = iterations > WAV_SIZE ? WAV_SIZE : iterations;
 
-  for (uint32_t i=0; i<iterations; ++i) {
-    uint16_t pos = uint32_t(i*delta) % length;
-    int32_t sample = buffer[pos];
+  while (samples_recorded<iterations) {
+     I2SInput.read(recordWav, 2 * read_size);
+     samples_recorded += read_size;
+#if 1
+Serial.println("*********************************");
+    for(int i = 0; i < read_size;++i)
+    {
+      Serial.println(recordWav[2*i],HEX);
+      Serial.println(recordWav[2*i+1],HEX);
+    }
+    Serial.println("*********************************");
+ #endif   
+    read_size = iterations - samples_recorded; 
+    read_size = read_size > WAV_SIZE ? WAV_SIZE : read_size;
 
-    // Duplicate the sample so it's sent to both the left and right channel.
-    // It appears the order is right channel, left channel if you want to write
-    // stereo sound.
-
-#ifdef ARDUINO_ARCH_ARC32
-    I2SOutput.write(sample, sample);
-#else
-    i2s.write(sample);
-    i2s.write(sample);
-#endif
   }
-
-#ifdef ARDUINO_ARCH_ARC32
-    // Flush the temporary holding buffer before exiting.
-    I2SOutput.write(0, 0, 1);
-#endif
 
 //  Serial.print("Iterations: ");
 //  Serial.println(iterations);
@@ -166,13 +164,13 @@ void setup() {
   Serial.begin(9600);
   while(!Serial);
 
-  Serial.println("Zero I2S Audio Tone Generator");
-
+  Serial.println("Zero I2S Audio Tone Record");
+digitalWrite(13,1);
 #ifdef ARDUINO_ARCH_ARC32
 
   // setup the I2S hardware in the specified mode, sample rate, bits per sample
   // and master/slave mode.
-  I2SOutput.begin(SAMPLE_RATE, I2S_32bit, I2S_MODE_PHILLIPS);
+  I2SInput.begin(SAMPLE_RATE, I2S_32bit, I2S_MODE_PHILLIPS);
 
 #else
   // Initialize the I2S transmitter.
@@ -195,38 +193,41 @@ void setup() {
   generateSine(AMPLITUDE, sine, WAV_SIZE);
   generateSawtooth(AMPLITUDE, sawtooth, WAV_SIZE);
   generateTriangle(AMPLITUDE, triangle, WAV_SIZE);
-  generateSquare(AMPLITUDE, square, WAV_SIZE);
+  //generateSquare(AMPLITUDE, square, WAV_SIZE);
 }
 
 void loop() {
   int numOfNotes = sizeof(scale)/sizeof(float);
 
-  Serial.println("Sine wave");
+  //Serial.println("Sine wave");
   for (int i=0; i<numOfNotes; ++i) {
     // Play the note for a quarter of a second.
-    playWave(sine, WAV_SIZE, scale[i], 0.25);
+    recordWave(sine, WAV_SIZE, scale[i], 0.25);
     // Pause for a tenth of a second between notes.
-    delay(100);
+    //delay(100);
   }
+  return;
   Serial.println("Sawtooth wave");
   for (int i=0; i<numOfNotes; ++i) {
     // Play the note for a quarter of a second.
-    playWave(sawtooth, WAV_SIZE, scale[i], 0.25);
+    recordWave(sawtooth, WAV_SIZE, scale[i], 0.25);
     // Pause for a tenth of a second between notes.
     delay(100);
   }
   Serial.println("Triangle wave");
   for (int i=0; i<numOfNotes; ++i) {
     // Play the note for a quarter of a second.
-    playWave(triangle, WAV_SIZE, scale[i], 0.25);
+    recordWave(triangle, WAV_SIZE, scale[i], 0.25);
     // Pause for a tenth of a second between notes.
     delay(100);
   }
+  #if 0
   Serial.println("Square wave");
   for (int i=0; i<numOfNotes; ++i) {
     // Play the note for a quarter of a second.
-    playWave(square, WAV_SIZE, scale[i], 0.25);
+    recordWave(square, WAV_SIZE, scale[i], 0.25);
     // Pause for a tenth of a second between notes.
     delay(100);
   }
+  #endif
 }

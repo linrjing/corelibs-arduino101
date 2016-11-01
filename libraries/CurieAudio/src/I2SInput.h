@@ -24,28 +24,25 @@
 
 class I2SInputClass : public I2SController
 {
-  friend void rxi2s_done(void* x);
-  friend void rxi2s_err(void* x);
+    friend void rxi2s_done(void* x);
+    friend void rxi2s_err(void* x);
 
-  public:
+public:
     I2SInputClass();
 
     i2sErrorCode begin(curieI2sSampleRate sample_rate,
-		       curieI2sSampleSize resolution,
-		       curieI2sMode mode,
-		       uint8_t master = 1);
+                       curieI2sSampleSize resolution, curieI2sMode mode,
+                       uint8_t master = 0);
     void end();
 
-    i2sErrorCode read(uint8_t buffer[], uint32_t length, uint32_t blocking = 1);
- 
-   void attachInterrupt(void (*userCallBack)(void))
-    {
-      userCB = userCallBack;
-    };
+    i2sErrorCode read(int32_t buffer[], uint32_t length, uint32_t blocking = 1);
+    i2sErrorCode read(int32_t* leftSample, int32_t* rightSample,
+                      uint32_t blocking = 1);
 
-  private:
+    void attachInterrupt(void (*userCallBack)(void)) { userCB = userCallBack; };
+private:
     curieI2sSampleSize sampleSize;
-    uint8_t rxdone_flag;
+    uint8_t rx_buffer_over_written;
     uint8_t rxerror_flag;
     void (*userCB)(void);
 };

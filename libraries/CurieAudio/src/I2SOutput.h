@@ -22,12 +22,11 @@
 
 #include "I2SController.h"
 
-#define BUFF_LENGTH	256
-
 class I2SOutputClass : public I2SController
 {
-  friend void txi2s_done(void* x);
-  friend void txi2s_err(void* x);
+  friend void i2sTxDoneCB(void *x);
+  friend void i2sPingPongTxCB(void *x);
+  friend void i2sTxErrorCB(void *x);
 
   public:
     I2SOutputClass();
@@ -38,18 +37,27 @@ class I2SOutputClass : public I2SController
 		       uint8_t master = 1);
     void end();
 
-    i2sErrorCode write(int32_t buffer[], uint32_t blocking = 1);
+    // Write one audio sample for each channel. Samples are temporarily stored in a buffer
+    // until it is full, it will be dumped to the I2S output.  Setting the flush flag
+    // will fill the unused space in the temperary buffer with 0 (mute) and cause it to
+    // be dumped to I2S output.
+    i2sErrorCode write(int32_t leftSample, int32_t rightSample,
+		       uint16_t flush = 0);
 
-    void attachCallback(void (*userCallBack)(uint16_t result))
-    {
-      userCB = userCallBack;
-    };
+    // This is an one time dumping of a buffer to the I2S output. The I2S bus is halted
+    // upon completion.
+    i2sErrorCode write(int32_t buffer[], int bufferLength,
+		       uint32_t blocking = 1);
+
+    inline uint8_t txDone(void) { return txdone_flag; }
+
+    int txError(void);
 
   private:
     curieI2sSampleSize sampleSize;
     uint8_t txdone_flag;
     uint8_t txerror_flag;
-    void (*userCB)(uint16_t result);
+    int txErrorCount;
 };
 
 extern I2SOutputClass I2SOutput;

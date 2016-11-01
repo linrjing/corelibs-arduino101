@@ -303,6 +303,7 @@ DRIVER_API_RC dma_update_ll(struct soc_dma_channel *channel, struct soc_dma_cfg 
 	while (!list_done)
 	{
 		lli->sar = (uint32_t)(xfer->src.addr);
+		lli->dar = (uint32_t)(xfer->dest.addr);
 		if ((xfer->next) == last_xfer)
 			list_done = 1;
 		else
@@ -578,12 +579,16 @@ DRIVER_API_RC soc_dma_config(struct soc_dma_channel *channel, struct soc_dma_cfg
 	SETV(MMIO_REG_VAL_FROM_BASE(SOC_DMA_BASE, dma_regs[id].CFG_U),
 		SOC_DMA_CFG_U_SRC_PER, SOC_DMA_CFG_U_SRC_PER_LEN, cfg->src_interface);
 
-	if ((cfg->src_interface == SOC_DMA_INTERFACE_I2S_RX) ||
-	    (cfg->src_interface == SOC_DMA_INTERFACE_I2S_TX)) {
-	  SETV(MMIO_REG_VAL_FROM_BASE(SOC_DMA_BASE, dma_regs[id].CFG_L),
-	       SOC_DMA_CTL_L_SRC_MSIZE, SOC_DMA_CTL_L_SRC_MSIZE_LEN, 1);
-	  SETV(MMIO_REG_VAL_FROM_BASE(SOC_DMA_BASE, dma_regs[id].CFG_L),
-	       SOC_DMA_CTL_L_DEST_MSIZE, SOC_DMA_CTL_L_DEST_MSIZE_LEN, 1);
+	// Per I2S controller specification.
+	if (cfg->src_interface == SOC_DMA_INTERFACE_I2S_RX) 
+	{
+	  	SETV(MMIO_REG_VAL_FROM_BASE(SOC_DMA_BASE, dma_regs[id].CFG_L),
+	    SOC_DMA_CTL_L_SRC_MSIZE, SOC_DMA_CTL_L_SRC_MSIZE_LEN, 1);
+	}
+	if (cfg->dest_interface == SOC_DMA_INTERFACE_I2S_TX) 
+	{
+	  	SETV(MMIO_REG_VAL_FROM_BASE(SOC_DMA_BASE, dma_regs[id].CFG_L),
+	    SOC_DMA_CTL_L_DEST_MSIZE, SOC_DMA_CTL_L_DEST_MSIZE_LEN, 1);
 	}
 
 	CLRB(MMIO_REG_VAL_FROM_BASE(SOC_DMA_BASE, dma_regs[id].CFG_U), SOC_DMA_CFG_U_SS_UPD_EN);

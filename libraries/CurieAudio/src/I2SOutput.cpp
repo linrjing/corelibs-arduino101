@@ -1,4 +1,4 @@
-//***************************************************************
+
 //
 // Copyright (c) 2016 Intel Corporation.  All rights reserved.
 //
@@ -14,45 +14,71 @@
 //
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library; if not, write to the Free Software
-// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
 //
 //***************************************************************
 
 #include "I2SOutput.h"
-#include "soc_i2s.h"
-#include "soc_dma.h"
-#include "variant.h"
 #include <interrupt.h>
+#include "soc_dma.h"
+#include "soc_i2s.h"
+#include "variant.h"
+
+const int numPpBuffer = 2;
+const int NUMBER_OF_SAMPLES = 256;
+
+static struct pingpongstruct
+{
+    int32_t buf[NUMBER_OF_SAMPLES];  // Left and right samples
+    uint16_t empty;
+} ppBuffer[numPpBuffer];
+
+static int i2sRunning = 0;
+static int sendIndex = 0;
+static int fillIndex = 0;
 
 I2SOutputClass I2SOutput;
 
-
-void txi2s_done(void* x)
+void i2sTxDoneCB(void *x)
 {
-  I2SOutput.txdone_flag = 1;
-  if (I2SOutput.userCB)
-    I2SOutput.userCB(0);
+    I2SOutput.txdone_flag = 1;
+    i2sRunning = 0;
 }
 
-void txi2s_err(void* x)
+void i2sPingPongTxCB(void *x)
 {
-  I2SOutput.txerror_flag = 1;
-  if (I2SOutput.userCB)
-    I2SOutput.userCB(1);
+    ppBuffer[sendIndex].empty = 1;
+    sendIndex = (sendIndex + 1) & 0x01;
+
+    if (ppBuffer[sendIndex].empty)
+    {
+        I2SOutput.txdone_flag = 1;
+        soc_i2s_stop_transmit();
+        i2sRunning = 0;
+    }
+}
+
+void i2sTxErrorCB(void *x)
+{
+    I2SOutput.txErrorCount++;
+    I2SOutput.txerror_flag = 1;
+    i2sRunning = 0;
 }
 
 I2SOutputClass::I2SOutputClass()
 {
-  txdone_flag = 1;
-  txerror_flag = 0;
-  userCB = NULL;
+    txdone_flag = 1;
+    txErrorCount = 0;
+
+    for (int i = 0; i < numPpBuffer; i++)
+    {
+        ppBuffer[0].empty = ppBuffer[1].empty = 1;
+    }
 }
 
-
 i2sErrorCode I2SOutputClass::begin(curieI2sSampleRate sampleRate,
-				   curieI2sSampleSize resolution,
-				   curieI2sMode mode,
-				   uint8_t master)
+                                   curieI2sSampleSize resolution,
+                                   curieI2sMode mode, uint8_t master)
 {
     struct soc_i2s_cfg txcfg;
 
@@ -66,8 +92,8 @@ i2sErrorCode I2SOutputClass::begin(curieI2sSampleRate sampleRate,
     txcfg.mode = (uint8_t)mode;
     txcfg.master = master;
 
-    txcfg.cb_done = txi2s_done;
-    txcfg.cb_err = txi2s_err;
+    txcfg.cb_done = i2sPingPongTxCB;
+    txcfg.cb_err = i2sTxErrorCB;
 
 #ifdef FOR_DEBUGGING
     Serial.print("Sample rate divider: ");
@@ -79,53 +105,106 @@ i2sErrorCode I2SOutputClass::begin(curieI2sSampleRate sampleRate,
 #endif
 
     if (soc_i2s_config(I2S_CHANNEL_TX, &txcfg) != DRV_RC_OK)
-      return I2S_INIT_FAIL;
-
-    // soc_i2s_stream_conifg will allocate of the link list 
-    // DRIVER_API_RC soc_i2s_stream_conifg(void *buf, uint32_t len, uint32_t len_per_data, uint32_t num_bufs);
-    if (soc_i2s_stream_conifg((void *)&txdone_flag, BUFF_LENGTH*4*2, 4, 2) != DRV_RC_OK)
-    {  
-      txdone_flag = 1;
-      return I2S_WRITE_FAIL;
-    }              
+        return I2S_INIT_FAIL;
 
     return SUCCESS;
 }
 
-
 void I2SOutputClass::end()
 {
-    soc_i2s_stop_stream();
+    soc_i2s_stop_transmit();
+    i2sRunning = 0;
     muxTX(0);
 }
 
-i2sErrorCode I2SOutputClass::write(int32_t buffer[], uint32_t blocking)
+static i2sErrorCode kickOff(void)
 {
-  
-    if (txdone_flag == 0)  return I2S_WRITE_BUSY;
+    void *bufPtrArray[numPpBuffer];
+    int i, j;
 
-    txdone_flag = 0;
-    txerror_flag = 0;
-     
-    // soc_i2s_transfer will update the source adress for DMA, and enable DMA  
-    if(soc_i2s_transfer((void *)buffer,I2S_CHANNEL_TX)!= DRV_RC_OK)
+    for (i = 0, j = sendIndex; i < numPpBuffer; i++)
     {
-      txdone_flag = 1;
-      return I2S_WRITE_FAIL;
+        bufPtrArray[i] = ppBuffer[j++].buf;
+        if (j >= numPpBuffer) j = 0;
     }
-    
-    if (blocking == 0)  return SUCCESS;
+
+    if (soc_i2s_transmit_loop(bufPtrArray, numPpBuffer, sizeof(ppBuffer[0].buf),
+                              sizeof(int32_t)) != DRV_RC_OK)
+    {
+        return I2S_WRITE_DRIVER_FAIL;
+    }
+    i2sRunning = 1;
+    return SUCCESS;
+}
+
+i2sErrorCode I2SOutputClass::write(int32_t leftSample, int32_t rightSample,
+                                   uint16_t flush)
+{
+    static int bufIndex = 0;
+    int16_t nextBuffer;
+    i2sErrorCode result = SUCCESS;
+
+    ppBuffer[fillIndex].buf[bufIndex++] = leftSample;
+    ppBuffer[fillIndex].buf[bufIndex++] = rightSample;
+
+    if (flush)
+    {
+        while (bufIndex < NUMBER_OF_SAMPLES)
+            ppBuffer[fillIndex].buf[bufIndex++] = 0;
+    }
+
+    if (bufIndex >= NUMBER_OF_SAMPLES)
+    {
+        // Buffer is filled
+        ppBuffer[fillIndex].empty = 0;
+        nextBuffer = (fillIndex + 1) & 0x01;
+
+        while (bufIndex >= NUMBER_OF_SAMPLES)
+        {
+            if (!i2sRunning)
+            {
+                if ((result = kickOff()) != SUCCESS) break;
+            }
+
+            if (ppBuffer[nextBuffer].empty == 1)
+            {
+                fillIndex = nextBuffer;
+                bufIndex = 0;
+            }
+        }
+    }
+    return result;
+}
+
+i2sErrorCode I2SOutputClass::write(int32_t buffer[], int bufferLength,
+                                   uint32_t blocking)
+{
+    //    int count = 0;
+
+    if (txdone_flag == 0) return I2S_WRITE_BUSY;
+
+    txerror_flag = txdone_flag = 0;
+
+    if (soc_i2s_write((void *)buffer, bufferLength, sizeof(int32_t)) !=
+        DRV_RC_OK)
+    {
+        txdone_flag = 1;
+        return I2S_WRITE_DRIVER_FAIL;
+    }
+
+    if (blocking == 0) return SUCCESS;
 
     while (1)  //  (count++ < 100000)  Need to bail sometime
     {
-      if (txerror_flag == 1)  break;
+        if (txerror_flag == 1) return I2S_WRITE_FAIL;
 
-      if (txdone_flag == 1)   return SUCCESS;
+        if (txdone_flag == 1) return SUCCESS;
     }
-
-    txerror_flag = 1;
-    return I2S_WRITE_FAIL;
 }
 
-
-
+int I2SOutputClass::txError(void)
+{
+    int tmp = txErrorCount;
+    txErrorCount = 0;
+    return tmp;
+}
