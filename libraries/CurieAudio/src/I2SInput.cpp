@@ -49,7 +49,6 @@ void rxi2s_done(void *x)
 
     if (rxPpBuffer[fillBufferIndex].full)
     {
-        fullBufferIndex = (fillBufferIndex + 1) & 0x01;
         I2SInput.rx_buffer_over_written++;
         //Serial.println("**rx_buffer_over_written*");
         //Serial.println(I2SInput.rx_buffer_over_written);
@@ -145,7 +144,10 @@ i2sErrorCode I2SInputClass::read(int32_t buffer[], uint32_t length,
 {
     int bytesLeft = length;
     int buffRead = 0;
-
+       
+    if(fullBufferIndex == fillBufferIndex)
+        fullBufferIndex = (fillBufferIndex + 1) & 0x01;
+           
     do
     {
         if (rxPpBuffer[fullBufferIndex].full)

@@ -119,6 +119,7 @@ void generateSquare(int32_t amplitude, int32_t* buffer, uint16_t length) {
 #endif
 
 void recordWave(int32_t* buffer, uint16_t length, float frequency, float seconds) {
+  I2SInput.read(recordWav, 2 * WAV_SIZE);
   // Play back the provided waveform buffer for the specified
   // amount of seconds.
   // First calculate how many samples need to play back to run
@@ -141,7 +142,7 @@ void recordWave(int32_t* buffer, uint16_t length, float frequency, float seconds
   while (samples_recorded<iterations) {
      I2SInput.read(recordWav, 2 * read_size);
      samples_recorded += read_size;
-#if 1
+#if 0
 Serial.println("*********************************");
     for(int i = 0; i < read_size;++i)
     {
@@ -204,9 +205,9 @@ void loop() {
     // Play the note for a quarter of a second.
     recordWave(sine, WAV_SIZE, scale[i], 0.25);
     // Pause for a tenth of a second between notes.
-    //delay(100);
+    delay(100);
   }
-  return;
+ 
   Serial.println("Sawtooth wave");
   for (int i=0; i<numOfNotes; ++i) {
     // Play the note for a quarter of a second.
